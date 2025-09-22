@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Localize all exploding coca-cola cans</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+            color: #1a202c;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 2rem;
+            flex-direction: column;
+        }
+        .container {
+            background-color: #fff;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            text-align: center;
+            position: relative;
+        }
+        #game-board {
+            display: grid;
+            border: 2px solid #3b82f6;
+            background-color: #d1d5db;
+            border-radius: 0.5rem;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            background-color: #4b5563;
+            border: 1px solid #6b7280;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #e5e7eb;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s;
+        }
+        .cell.revealed {
+            background-color: #e5e7eb;
+            color: #1a202c;
+            cursor: default;
+        }
+        .cell.revealed.safe-zero {
+            background-color: #f3f4f6;
+        }
+        .cell.safe-1 { color: #3b82f6; }
+        .cell.safe-2 { color: #10b981; }
+        .cell.safe-3 { color: #ef4444; }
+        .cell.safe-4 { color: #8b5cf6; }
+        .cell.safe-5 { color: #ec4899; }
+        .cell.safe-6 { color: #f59e0b; }
+        .cell.safe-7 { color: #22d3ee; }
+        .cell.safe-8 { color: #4ade80; }
+        .cell.cola {
+            background-color: #dc2626;
+            font-size: 2rem;
+            transform: scale(1.1);
+            animation: bounce 0.5s ease-in-out;
+        }
+        .cell.marked-cola {
+            background-color: #fca5a5;
+            color: #dc2626;
+        }
+        .cell.marked-uncertain {
+            background-color: #fcd34d;
+            color: #92400e;
+        }
+        .cell.marked-cola, .cell.marked-uncertain {
+            font-size: 2rem;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+        .options-menu {
+            position: absolute;
+            background-color: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 0.5rem;
+            display: flex;
+            gap: 0.5rem;
+            z-index: 10;
+        }
+        .options-menu button {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            border-radius: 0.5rem;
+            background-color: #f3f4f6;
+            transition: background-color 0.2s;
+        }
+        .options-menu button:hover {
+            background-color: #e5e7eb;
+        }
+        .explosion-particle {
+            position: absolute;
+            background-color: #dc2626;
+            border-radius: 50%;
+            width: 10px;
+            height: 10px;
+            animation: explode 1.5s forwards ease-out;
+        }
+        @keyframes explode {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: translate(var(--x), var(--y)) scale(0); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center p-4">
+    <div class="container">
+        <div class="flex items-center justify-between mb-4">
+            <h1 class="text-2xl font-bold">Localize all exploding coca-cola cans</h1>
+            <div id="end-game-message" class="hidden">
+                <h2 class="text-2xl font-bold"></h2>
+                <button id="restart-button" class="px-6 py-3 bg-blue-500 text-white font-bold rounded-full hover:bg-blue-600 transition-colors">Play Again</button>
+            </div>
+        </div>
+        <div id="game-status" class="text-xl font-semibold mb-4 text-gray-800 text-left">Cans marked: 0 / 25</div>
+        <div id="game-board"></div>
+        <div id="options-menu" class="options-menu hidden">
+            <button id="reveal-btn" data-action="reveal">✅</button>
+            <button id="mark-btn" data-action="mark">❌</button>
+            <button id="uncertain-btn" data-action="uncertain">❓</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const board = document.getElementById('game-board');
+            const gameStatus = document.getElementById('game-status');
+            const optionsMenu = document.getElementById('options-menu');
+            const endGameMessage = document.getElementById('end-game-message');
+            const restartButton = document.getElementById('restart-button');
+            const endGameHeading = endGameMessage.querySelector('h2');
+
+            const ROWS = 16;
+            const COLS = 16;
+            const NUM_MINES = 25; // Medium level
+            let mineLocations = [];
+            let boardCells = [];
+            let firstClick = true;
+            let gameOver = false;
+            let cellsRevealed = 0;
+            
+            const colaEmoji = '🥤';
+            const markColaEmoji = '❌';
+            const uncertainEmoji = '❓';
+
+            let selectedCell = null;
+
+            function createBoard() {
+                board.innerHTML = '';
+                board.style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
+                boardCells = [];
+                for (let i = 0; i < ROWS; i++) {
+                    boardCells[i] = [];
+                    for (let j = 0; j < COLS; j++) {
+                        const cell = document.createElement('div');
+                        cell.classList.add('cell');
+                        cell.dataset.row = i;
+                        cell.dataset.col = j;
+                        cell.addEventListener('click', handleCellClick);
+                        board.appendChild(cell);
+                        boardCells[i][j] = {
+                            element: cell,
+                            isMine: false,
+                            isRevealed: false,
+                            isMarked: false,
+                            isUncertain: false,
+                            neighborMines: 0
+                        };
+                    }
+                }
+            }
+
+            function placeMines(firstRow, firstCol) {
+                let placedMines = 0;
+                while (placedMines < NUM_MINES) {
+                    const row = Math.floor(Math.random() * ROWS);
+                    const col = Math.floor(Math.random() * COLS);
+                    // Ensure the first clicked cell and its neighbors are safe
+                    const isFirstClickArea = Math.abs(row - firstRow) <= 1 && Math.abs(col - firstCol) <= 1;
+                    if (!boardCells[row][col].isMine && !isFirstClickArea) {
+                        boardCells[row][col].isMine = true;
+                        mineLocations.push({ row, col });
+                        placedMines++;
+                    }
+                }
+                calculateNeighbors();
+            }
+
+            function calculateNeighbors() {
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c < COLS; c++) {
+                        if (boardCells[r][c].isMine) continue;
+                        let count = 0;
+                        for (let dr = -1; dr <= 1; dr++) {
+                            for (let dc = -1; dc <= 1; dc++) {
+                                if (dr === 0 && dc === 0) continue;
+                                const newRow = r + dr;
+                                const newCol = c + dc;
+                                if (newRow >= 0 && newRow < ROWS && newCol >= 0 && newCol < COLS && boardCells[newRow][newCol].isMine) {
+                                    count++;
+                                }
+                            }
+                        }
+                        boardCells[r][c].neighborMines = count;
+                    }
+                }
+            }
+
+            function revealCell(row, col) {
+                if (row < 0 || row >= ROWS || col < 0 || col >= COLS || boardCells[row][col].isRevealed) {
+                    return;
+                }
+                
+                const cell = boardCells[row][col];
+                cell.isRevealed = true;
+                cell.isMarked = false;
+                cell.isUncertain = false;
+                cell.element.classList.remove('marked-cola', 'marked-uncertain');
+                cell.element.classList.add('revealed');
+                cell.element.textContent = '';
+                cellsRevealed++;
+
+                if (cell.isMine) {
+                    cell.element.textContent = colaEmoji;
+                    cell.element.classList.add('cola');
+                    return;
+                }
+
+                if (cell.neighborMines > 0) {
+                    cell.element.textContent = cell.neighborMines;
+                    cell.element.classList.add(`safe-${cell.neighborMines}`);
+                } else {
+                    cell.element.classList.add('safe-zero');
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            revealCell(row + dr, col + dc);
+                        }
+                    }
+                }
+            }
+            
+            function createExplosion(cellElement) {
+                const numParticles = 30;
+                const rect = cellElement.getBoundingClientRect();
+                const containerRect = document.querySelector('.container').getBoundingClientRect();
+                const x = rect.left + rect.width / 2 - containerRect.left;
+                const y = rect.top + rect.height / 2 - containerRect.top;
+
+                for (let i = 0; i < numParticles; i++) {
+                    const particle = document.createElement('div');
+                    particle.classList.add('explosion-particle');
+                    particle.style.left = `${x}px`;
+                    particle.style.top = `${y}px`;
+
+                    const angle = Math.random() * 2 * Math.PI;
+                    const distance = Math.random() * 100 + 50;
+                    const endX = Math.cos(angle) * distance;
+                    const endY = Math.sin(angle) * distance;
+
+                    particle.style.setProperty('--x', `${endX}px`);
+                    particle.style.setProperty('--y', `${endY}px`);
+
+                    document.querySelector('.container').appendChild(particle);
+                    particle.addEventListener('animationend', () => {
+                        particle.remove();
+                    });
+                }
+            }
+
+            function handleCellClick(event) {
+                if (gameOver || event.target.classList.contains('revealed')) {
+                    return;
+                }
+
+                const row = parseInt(event.target.dataset.row);
+                const col = parseInt(event.target.dataset.col);
+
+                // For the very first click, place mines and reveal a safe area
+                if (firstClick) {
+                    placeMines(row, col);
+                    firstClick = false;
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                             revealCell(row + dr, col + dc);
+                        }
+                    }
+                    return;
+                }
+                
+                // Stop event propagation to prevent the options menu from immediately hiding
+                event.stopPropagation();
+
+                // Store the clicked cell for the menu options
+                selectedCell = { row, col };
+                
+                // Position the options menu
+                const rect = event.target.getBoundingClientRect();
+                optionsMenu.style.top = `${rect.top + window.scrollY + 5}px`;
+                optionsMenu.style.left = `${rect.left + window.scrollX + (rect.width / 2) - (optionsMenu.offsetWidth / 2)}px`;
+                optionsMenu.classList.remove('hidden');
+            }
+
+            function handleOptionClick(event) {
+                optionsMenu.classList.add('hidden');
+                if (!selectedCell) return;
+                
+                const { row, col } = selectedCell;
+                const cell = boardCells[row][col];
+                const action = event.target.dataset.action;
+
+                if (action === 'reveal') {
+                    if (cell.isMine) {
+                        createExplosion(cell.element);
+                        revealAllMines();
+                        gameOver = true;
+                        endGameHeading.textContent = "Game Over!";
+                        gameStatus.classList.add('hidden');
+                        endGameMessage.classList.remove('hidden');
+                    } else {
+                        revealCell(row, col);
+                        updateGameStatus();
+                        checkWinCondition();
+                    }
+                } else if (action === 'mark') {
+                    cell.isMarked = !cell.isMarked;
+                    cell.isUncertain = false; // Cannot be both
+                    if (cell.isMarked) {
+                        cell.element.textContent = markColaEmoji;
+                        cell.element.classList.add('marked-cola');
+                        cell.element.classList.remove('marked-uncertain');
+                    } else {
+                        cell.element.textContent = '';
+                        cell.element.classList.remove('marked-cola');
+                    }
+                    updateGameStatus();
+                } else if (action === 'uncertain') {
+                    cell.isUncertain = !cell.isUncertain;
+                    cell.isMarked = false; // Cannot be both
+                    if (cell.isUncertain) {
+                        cell.element.textContent = uncertainEmoji;
+                        cell.element.classList.add('marked-uncertain');
+                        cell.element.classList.remove('marked-cola');
+                    } else {
+                        cell.element.textContent = '';
+                        cell.element.classList.remove('marked-uncertain');
+                    }
+                    updateGameStatus();
+                }
+            }
+            
+            // Add listeners for the option buttons
+            optionsMenu.querySelectorAll('button').forEach(button => {
+                button.addEventListener('click', handleOptionClick);
+            });
+
+            // Hide the menu if the user clicks anywhere else
+            document.addEventListener('click', () => {
+                if (!optionsMenu.classList.contains('hidden')) {
+                    optionsMenu.classList.add('hidden');
+                }
+            });
+
+            function updateGameStatus() {
+                let cansFound = 0;
+                boardCells.forEach(row => {
+                    row.forEach(cell => {
+                        if (cell.isMarked) {
+                            cansFound++;
+                        }
+                    });
+                });
+                gameStatus.textContent = `Cans marked: ${cansFound} / ${NUM_MINES}`;
+            }
+
+            function checkWinCondition() {
+                let cansFound = 0;
+                let correctlyMarked = 0;
+
+                boardCells.forEach(row => {
+                    row.forEach(cell => {
+                        if (cell.isMarked) {
+                            cansFound++;
+                        }
+                        if (cell.isMarked && cell.isMine) {
+                            correctlyMarked++;
+                        }
+                    });
+                });
+
+                if (cellsRevealed === (ROWS * COLS) - NUM_MINES) {
+                    revealAllMines();
+                    gameOver = true;
+                    endGameHeading.textContent = "Congratulations!";
+                    gameStatus.classList.add('hidden');
+                    endGameMessage.classList.remove('hidden');
+                } else if (cansFound === NUM_MINES && correctlyMarked === NUM_MINES) {
+                    revealAllMines();
+                    gameOver = true;
+                    endGameHeading.textContent = "Congratulations!";
+                    gameStatus.classList.add('hidden');
+                    endGameMessage.classList.remove('hidden');
+                }
+            }
+
+            function revealAllMines() {
+                mineLocations.forEach(mine => {
+                    const cell = boardCells[mine.row][mine.col].element;
+                    if (!cell.classList.contains('revealed')) {
+                         cell.classList.add('revealed', 'cola');
+                         cell.textContent = colaEmoji;
+                    }
+                });
+            }
+
+            function initGame() {
+                mineLocations = [];
+                firstClick = true;
+                gameOver = false;
+                cellsRevealed = 0;
+                gameStatus.textContent = `Cans marked: 0 / ${NUM_MINES}`;
+                gameStatus.classList.remove('hidden');
+                endGameMessage.classList.add('hidden');
+                optionsMenu.classList.add('hidden');
+                createBoard();
+            }
+
+            restartButton.addEventListener('click', initGame);
+
+            initGame();
+        });
+    </script>
+</body>
+</html>
